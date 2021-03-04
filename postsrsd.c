@@ -645,7 +645,7 @@ int main(int argc, char **argv)
     while (TRUE)
     {
         int conn;
-        FILE *fp;
+        FILE *fp, *fpw;
         char linebuf[1024], *line;
         char keybuf[1024], *key;
 
@@ -675,9 +675,14 @@ int main(int argc, char **argv)
                     for (i = 0; i < socket_count; ++i)
                         close(sockets[i]);
 
-                    fp = fdopen(conn, "r+");
+                    fp = fdopen(conn, "r");
                     if (fp == NULL)
                         exit(EXIT_FAILURE);
+
+                    fpw = fdopen(conn, "w");
+                    if (fpw == NULL)
+                        exit(EXIT_FAILURE);
+
                     fds[0].fd = conn;
                     fds[0].events = POLLIN;
                     while (1)
@@ -688,33 +693,33 @@ int main(int argc, char **argv)
                         if (!line)
                             break;
 
-                        fseek(fp, 0, SEEK_CUR); /* Workaround for Solaris */
                         char *token;
                         token = strtok(line, " \r\n");
                         if (token == NULL || strcmp(token, "get") != 0)
                         {
-                            fprintf(fp, "500 Invalid request\n");
-                            fflush(fp);
+                            fprintf(fpw, "500 Invalid request\n");
+                            fflush(fpw);
                             return EXIT_FAILURE;
                         }
                         token = strtok(NULL, "\r\n");
                         if (!token)
                         {
-                            fprintf(fp, "500 Invalid request\n");
-                            fflush(fp);
+                            fprintf(fpw, "500 Invalid request\n");
+                            fflush(fpw);
                             return EXIT_FAILURE;
                         }
                         key = url_decode(keybuf, sizeof(keybuf), token);
                         if (!key)
                         {
-                            fprintf(fp, "500 Invalid request\n");
-                            fflush(fp);
+                            fprintf(fpw, "500 Invalid request\n");
+                            fflush(fpw);
                             return EXIT_FAILURE;
                         }
-                        handler[sc](srs, fp, key, domain, excludes);
-                        fflush(fp);
+                        handler[sc](srs, fpw, key, domain, excludes);
+                        fflush(fpw);
                     }
                     fclose(fp);
+                    fclose(fpw);
                     return EXIT_SUCCESS;
                 }
                 close(conn);
