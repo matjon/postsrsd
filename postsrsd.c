@@ -693,6 +693,18 @@ int main(int argc, char **argv)
                         if (!line)
                             break;
 
+                        if (strlen(line) >= sizeof(linebuf) - 1) {
+                            // We cannot continue as there may be a mismatch
+                            // between the state of the FILE * structure and
+                            // the real state of the stream.
+                            //
+                            // Some data may be in the C library's buffers,
+                            // which we cannot check.
+                            fprintf(fpw, "500 Invalid request\n");
+                            fflush(fpw);
+                            return EXIT_FAILURE;
+                        }
+
                         char *token;
                         token = strtok(line, " \r\n");
                         if (token == NULL || strcmp(token, "get") != 0)
