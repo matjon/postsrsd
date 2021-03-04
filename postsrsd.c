@@ -680,11 +680,14 @@ int main(int argc, char **argv)
                         exit(EXIT_FAILURE);
                     fds[0].fd = conn;
                     fds[0].events = POLLIN;
-                    if (poll(fds, 1, timeout * 1000) <= 0)
-                        return EXIT_FAILURE;
-                    line = fgets(linebuf, sizeof(linebuf), fp);
-                    while (line)
+                    while (1)
                     {
+                        if (poll(fds, 1, timeout * 1000) <= 0)
+                            return EXIT_FAILURE;
+                        line = fgets(linebuf, sizeof(linebuf), fp);
+                        if (!line)
+                            break;
+
                         fseek(fp, 0, SEEK_CUR); /* Workaround for Solaris */
                         char *token;
                         token = strtok(line, " \r\n");
@@ -710,9 +713,6 @@ int main(int argc, char **argv)
                         }
                         handler[sc](srs, fp, key, domain, excludes);
                         fflush(fp);
-                        if (poll(fds, 1, timeout * 1000) <= 0)
-                            break;
-                        line = fgets(linebuf, sizeof(linebuf), fp);
                     }
                     fclose(fp);
                     return EXIT_SUCCESS;
