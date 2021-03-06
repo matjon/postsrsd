@@ -645,8 +645,9 @@ int main(int argc, char **argv)
     while (TRUE)
     {
         int conn;
-        FILE *fp, *fpw;
-        char linebuf[1024], *line;
+        FILE *fpw;
+        char linebuf[1024];
+        size_t linelength;
         char keybuf[1024], *key;
 
         if (poll(fds, socket_count, 1000) < 0)
@@ -675,10 +676,6 @@ int main(int argc, char **argv)
                     for (i = 0; i < socket_count; ++i)
                         close(sockets[i]);
 
-                    fp = fdopen(conn, "r");
-                    if (fp == NULL)
-                        exit(EXIT_FAILURE);
-
                     fpw = fdopen(conn, "w");
                     if (fpw == NULL)
                         exit(EXIT_FAILURE);
@@ -689,24 +686,21 @@ int main(int argc, char **argv)
                     {
                         if (poll(fds, 1, timeout * 1000) <= 0)
                             return EXIT_FAILURE;
-                        line = fgets(linebuf, sizeof(linebuf), fp);
-                        if (!line)
+                        linelength = read(conn, linebuf, sizeof(linebuf)-1);
+                        linebuf[linelength] = 0;
+
+                        if (linelength == 0)
                             break;
 
-                        if (strlen(line) >= sizeof(linebuf) - 1) {
-                            // We cannot continue as there may be a mismatch
-                            // between the state of the FILE * structure and
-                            // the real state of the stream.
-                            //
-                            // Some data may be in the C library's buffers,
-                            // which we cannot check.
+                        if (linelength >= sizeof(linebuf) - 1) {
+                            // TODO: handle long lines correctly
                             fprintf(fpw, "500 Invalid request\n");
                             fflush(fpw);
                             return EXIT_FAILURE;
                         }
 
                         char *token;
-                        token = strtok(line, " \r\n");
+                        token = strtok(linebuf, " \r\n");
                         if (token == NULL || strcmp(token, "get") != 0)
                         {
                             fprintf(fpw, "500 Invalid request\n");
@@ -730,7 +724,6 @@ int main(int argc, char **argv)
                         handler[sc](srs, fpw, key, domain, excludes);
                         fflush(fpw);
                     }
-                    fclose(fp);
                     fclose(fpw);
                     return EXIT_SUCCESS;
                 }
