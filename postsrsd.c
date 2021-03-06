@@ -100,6 +100,31 @@ static size_t bind_service(const char *listen_addr, const char *service,
     return count;
 }
 
+static size_t write_string(int fd, const void *string)
+{
+    size_t input_length = strlen(string);
+    size_t remaining_length = input_length;
+
+    while (remaining_length > 0) {
+        errno = 0;
+        size_t ret = write(fd, string, remaining_length);
+
+        if (ret == -1) {
+            if (errno == EINTR) {
+                continue;
+            } else {
+                perror("Writing to socket failed");
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        remaining_length -= ret;
+        string += remaining_length;
+    }
+
+    return input_length;
+}
+
 static int is_hexdigit(char c)
 {
     return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
@@ -686,16 +711,17 @@ int main(int argc, char **argv)
                     {
                         if (poll(fds, 1, timeout * 1000) <= 0)
                             return EXIT_FAILURE;
+                        // TODO: handle partial reads correctly
+                        // (for example those interrupted by a signal)
                         linelength = read(conn, linebuf, sizeof(linebuf)-1);
                         linebuf[linelength] = 0;
 
                         if (linelength == 0)
                             break;
 
+                        // TODO: handle long lines correctly
                         if (linelength >= sizeof(linebuf) - 1) {
-                            // TODO: handle long lines correctly
-                            fprintf(fpw, "500 Invalid request\n");
-                            fflush(fpw);
+                            write_string(conn, "500 Invalid request\n");
                             return EXIT_FAILURE;
                         }
 
@@ -703,22 +729,19 @@ int main(int argc, char **argv)
                         token = strtok(linebuf, " \r\n");
                         if (token == NULL || strcmp(token, "get") != 0)
                         {
-                            fprintf(fpw, "500 Invalid request\n");
-                            fflush(fpw);
+                            write_string(conn, "500 Invalid request\n");
                             return EXIT_FAILURE;
                         }
                         token = strtok(NULL, "\r\n");
                         if (!token)
                         {
-                            fprintf(fpw, "500 Invalid request\n");
-                            fflush(fpw);
+                            write_string(conn, "500 Invalid request\n");
                             return EXIT_FAILURE;
                         }
                         key = url_decode(keybuf, sizeof(keybuf), token);
                         if (!key)
                         {
-                            fprintf(fpw, "500 Invalid request\n");
-                            fflush(fpw);
+                            write_string(conn, "500 Invalid request\n");
                             return EXIT_FAILURE;
                         }
                         handler[sc](srs, fpw, key, domain, excludes);
