@@ -100,7 +100,7 @@ static size_t bind_service(const char *listen_addr, const char *service,
     return count;
 }
 
-static size_t write_string(int fd, const void *string)
+static size_t write_string(int fd, const char *string)
 {
     size_t input_length = strlen(string);
     size_t remaining_length = input_length;
