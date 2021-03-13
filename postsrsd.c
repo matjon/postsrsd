@@ -125,6 +125,28 @@ static size_t write_string(int fd, const char *string)
     return input_length;
 }
 
+static void write_3_strings(int fd, const char *string1, const char *string2,
+                const char *string3)
+{
+    /*
+     * Postfix may expect the whole line to be sent in one piece,
+     * so we try to do satisfy this condition.
+     */
+    char buffer[1500];
+    char ret = snprintf(buffer, sizeof(buffer), "%s%s%s",
+                    string1, string2, string3);
+
+    // snprintf() returns a value bigger or equal to sizeof(buffer) when the
+    // string is truncated, see manpage
+    if (ret >= sizeof(buffer)) {
+        write_string(fd, string1);
+        write_string(fd, string2);
+        write_string(fd, string3);
+    } else {
+        write_string(fd, buffer);
+    }
+}
+
 static int is_hexdigit(char c)
 {
     return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
@@ -214,7 +236,7 @@ static char *url_encode(char *buf, size_t len, const char *input)
     return buf;
 }
 
-static void handle_forward(srs_t *srs, FILE *fp, const char *address,
+static void handle_forward(srs_t *srs, int conn, const char *address,
                            const char *domain, const char **excludes)
 {
     int result;
@@ -235,15 +257,13 @@ static void handle_forward(srs_t *srs, FILE *fp, const char *address,
             syslog(LOG_MAIL | LOG_INFO,
                    "srs_forward: <%s> not rewritten: Domain excluded by policy",
                    address);
-            fputs("500 Domain excluded py policy\n", fp);
-            fflush(fp);
+            write_string(conn, "500 Domain excluded py policy\n");
             return;
         }
     }
     if (srs_reverse(srs, value, sizeof(value), address) == SRS_SUCCESS)
     {
-        fprintf(fp, "500 Already rewritten\n");
-        fflush(fp);
+        write_string(conn, "500 Already rewritten\n");
         syslog(LOG_MAIL | LOG_NOTICE,
                "srs_forward: <%s> not rewritten: Valid SRS address for <%s>",
                address, value);
@@ -253,22 +273,21 @@ static void handle_forward(srs_t *srs, FILE *fp, const char *address,
     if (result == SRS_SUCCESS)
     {
         output = url_encode(outputbuf, sizeof(outputbuf), value);
-        fprintf(fp, "200 %s\n", output);
+        write_3_strings(conn, "200 ", output, "\n");
         if (strcmp(address, value) != 0)
             syslog(LOG_MAIL | LOG_INFO, "srs_forward: <%s> rewritten as <%s>",
                    address, value);
     }
     else
     {
-        fprintf(fp, "500 %s\n", srs_strerror(result));
+        write_3_strings(conn, "500 ", srs_strerror(result), "\n");
         if (result != SRS_ENOTREWRITTEN)
             syslog(LOG_MAIL | LOG_INFO, "srs_forward: <%s> not rewritten: %s",
                    address, srs_strerror(result));
     }
-    fflush(fp);
 }
 
-static void handle_reverse(srs_t *srs, FILE *fp, const char *address,
+static void handle_reverse(srs_t *srs, int conn, const char *address,
                            const char *domain __attribute__((unused)),
                            const char **excludes __attribute__((unused)))
 {
@@ -279,18 +298,17 @@ static void handle_reverse(srs_t *srs, FILE *fp, const char *address,
     if (result == SRS_SUCCESS)
     {
         output = url_encode(outputbuf, sizeof(outputbuf), value);
-        fprintf(fp, "200 %s\n", output);
+        write_3_strings(conn, "200 ", output, "\n");
         syslog(LOG_MAIL | LOG_INFO, "srs_reverse: <%s> rewritten as <%s>",
                address, value);
     }
     else
     {
-        fprintf(fp, "500 %s\n", srs_strerror(result));
+        write_3_strings(conn, "500 ", srs_strerror(result), "\n");
         if (result != SRS_ENOTREWRITTEN && result != SRS_ENOTSRSADDRESS)
             syslog(LOG_MAIL | LOG_INFO, "srs_reverse: <%s> not rewritten: %s",
                    address, srs_strerror(result));
     }
-    fflush(fp);
 }
 
 static void show_help()
@@ -336,7 +354,7 @@ static void show_help()
         self);
 }
 
-typedef void (*handle_t)(srs_t *, FILE *, const char *, const char *,
+typedef void (*handle_t)(srs_t *, int, const char *, const char *,
                          const char **);
 
 int main(int argc, char **argv)
@@ -670,7 +688,6 @@ int main(int argc, char **argv)
     while (TRUE)
     {
         int conn;
-        FILE *fpw;
         char linebuf[1024];
         size_t linelength;
         char keybuf[1024], *key;
@@ -700,10 +717,6 @@ int main(int argc, char **argv)
                     // daemon process from restarting
                     for (i = 0; i < socket_count; ++i)
                         close(sockets[i]);
-
-                    fpw = fdopen(conn, "w");
-                    if (fpw == NULL)
-                        exit(EXIT_FAILURE);
 
                     fds[0].fd = conn;
                     fds[0].events = POLLIN;
@@ -744,10 +757,8 @@ int main(int argc, char **argv)
                             write_string(conn, "500 Invalid request\n");
                             return EXIT_FAILURE;
                         }
-                        handler[sc](srs, fpw, key, domain, excludes);
-                        fflush(fpw);
+                        handler[sc](srs, conn, key, domain, excludes);
                     }
-                    fclose(fpw);
                     return EXIT_SUCCESS;
                 }
                 close(conn);
